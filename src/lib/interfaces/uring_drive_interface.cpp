@@ -465,6 +465,7 @@ void UringDriveInterface::on_event_notification(IODevice* iodev, [[maybe_unused]
 
 void UringDriveInterface::handle_completions() {
     auto const loop_start = std::chrono::steady_clock::now();
+    uint32_t num_completions = 0;
     do {
         struct io_uring_cqe* cqe;
         int ret = io_uring_peek_cqe(&t_uring_ch->m_ring, &cqe);
@@ -541,9 +542,10 @@ void UringDriveInterface::handle_completions() {
         }
         --(t_uring_ch->m_in_flight_ios);
         t_uring_ch->drain_waitq();
+        ++num_completions;
     } while (true);
 
-    if (m_post_completion_hook) { m_post_completion_hook(); }
+    if (num_completions > 0 && m_post_completion_hook) { m_post_completion_hook(); }
 }
 
 void UringDriveInterface::complete_io(drive_iocb* iocb) {
