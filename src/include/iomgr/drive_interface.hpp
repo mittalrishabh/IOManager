@@ -18,6 +18,7 @@
 #include <fcntl.h>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <mutex>
@@ -171,6 +172,9 @@ public:
     virtual void attach_completion_cb(const io_interface_comp_cb_t& cb) { m_comp_cb = cb; }
     virtual DriveInterfaceMetrics& get_metrics() = 0;
 
+    using post_completion_cb_t = std::function< void() >;
+    void set_post_completion_hook(post_completion_cb_t cb) { m_post_completion_hook = std::move(cb); }
+
     static drive_attributes get_attributes(const std::string& dev_name);
     static drive_type get_drive_type(const std::string& dev_name);
     static void emulate_drive_type(const std::string& dev_name, const drive_type dtype);
@@ -191,6 +195,7 @@ protected:
     virtual io_device_ptr open_dev(const std::string& dev_name, drive_type dev_type, int oflags) = 0;
 
     io_interface_comp_cb_t m_comp_cb;
+    post_completion_cb_t m_post_completion_hook;
 
 private:
     static drive_type detect_drive_type(const std::string& dev_name);

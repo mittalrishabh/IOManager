@@ -53,6 +53,12 @@ public:
         REGISTER_COUNTER(retry_on_partial_read, "number of times ios are retried on partial read");
         REGISTER_COUNTER(overflow_errors, "number of CQ overflow occurrences");
         REGISTER_COUNTER(num_of_drops, "number of dropped ios due to CQ overflow");
+        REGISTER_HISTOGRAM(complete_io_latency, "Time from loop start to after complete_io in us",
+                           HistogramBucketsType(ExponentialOfTwoBuckets));
+        REGISTER_HISTOGRAM(read_completion_latency, "Time spent in single read complete_io call in us",
+                           HistogramBucketsType(ExponentialOfTwoBuckets));
+        REGISTER_HISTOGRAM(write_completion_latency, "Time spent in single write complete_io call in us",
+                           HistogramBucketsType(ExponentialOfTwoBuckets));
         register_me_to_farm();
     }
 

@@ -13,6 +13,7 @@
  * specific language governing permissions and limitations under the License.
  **************************************************************************/
 #include "interfaces/uring_drive_interface.hpp"
+#include <chrono>
 #include <iomgr/iomgr.hpp>
 
 #if defined __clang__ or defined __GNUC__
@@ -50,7 +51,7 @@ uring_drive_channel::uring_drive_channel(UringDriveInterface* iface) {
     // Create io device and add it local thread
     using namespace std::placeholders;
     m_ring_ev_iodev = iomanager.generic_interface()->make_io_device(
-        backing_dev_t(ev_fd), EPOLLIN, 0, nullptr, true,
+        backing_dev_t(ev_fd), EPOLLIN, 9, nullptr, true,
         std::bind(&UringDriveInterface::on_event_notification, iface, _1, _2, _3));
     iomanager.this_reactor()->attach_iomgr_sentinel_cb([iface]() { iface->handle_completions(); });
 }
@@ -463,6 +464,7 @@ void UringDriveInterface::on_event_notification(IODevice* iodev, [[maybe_unused]
 }
 
 void UringDriveInterface::handle_completions() {
+    auto const loop_start = std::chrono::steady_clock::now();
     do {
         struct io_uring_cqe* cqe;
         int ret = io_uring_peek_cqe(&t_uring_ch->m_ring, &cqe);
@@ -493,7 +495,21 @@ void UringDriveInterface::handle_completions() {
             if (sisl_likely(static_cast< uint64_t >(iocb->result) == iocb->size)) {
                 // all read buffer is filled by uring;
                 LOGDEBUGMOD(iomgr, "Received completion event, iocb={} Result={}", iocb->to_string(), iocb->result);
-                complete_io(iocb);
+                {
+                    auto const io_start = std::chrono::steady_clock::now();
+                    auto const op = iocb->op_type;
+                    complete_io(iocb);
+                    auto const now = std::chrono::steady_clock::now();
+                    auto const elapsed_us =
+                        std::chrono::duration_cast< std::chrono::microseconds >(now - io_start).count();
+                    if (op == DriveOpType::READ) {
+                        HISTOGRAM_OBSERVE(m_metrics, read_completion_latency, elapsed_us);
+                    } else {
+                        HISTOGRAM_OBSERVE(m_metrics, write_completion_latency, elapsed_us);
+                    }
+                    HISTOGRAM_OBSERVE(m_metrics, complete_io_latency,
+                                      std::chrono::duration_cast< std::chrono::microseconds >(now - loop_start).count());
+                }
             } else {
                 // ***** Paritial Read Handling ******** //
                 LOGDEBUGMOD(iomgr, "Received completion event with partial result, iocb={} size={} Result={}, retry={}",
@@ -526,6 +542,8 @@ void UringDriveInterface::handle_completions() {
         --(t_uring_ch->m_in_flight_ios);
         t_uring_ch->drain_waitq();
     } while (true);
+
+    if (m_post_completion_hook) { m_post_completion_hook(); }
 }
 
 void UringDriveInterface::complete_io(drive_iocb* iocb) {
